@@ -9,6 +9,12 @@
     -fx-border-width: 0 0 1 0;
 }
 
+.tool-bar {
+    -fx-background-color: #e5e7eb;
+    -fx-border-color: #d1d5db;
+    -fx-border-width: 0 0 1 0;
+}
+
 .menu-bar .label {
     -fx-text-fill: #111827;
     -fx-font-weight: 600;
