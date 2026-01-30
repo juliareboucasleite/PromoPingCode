@@ -63,6 +63,8 @@ public class EditorController {
     private TabPane tabPane;
     @FXML
     private Label lblStatus;
+    @FXML
+    private Label lblStats;
 
     @FXML
     private MenuItem miNewTab;
@@ -98,6 +100,10 @@ public class EditorController {
     private RadioMenuItem miThemeLight;
     @FXML
     private RadioMenuItem miThemeDark;
+    @FXML
+    private RadioMenuItem miModeText;
+    @FXML
+    private RadioMenuItem miModeCode;
 
     @FXML
     private MenuItem miAbout;
@@ -115,6 +121,7 @@ public class EditorController {
         boolean dirty;
         boolean loading;
         Subscription highlightSubscription;
+        boolean codeMode;
     }
 
     @FXML
@@ -124,9 +131,18 @@ public class EditorController {
         miThemeDark.setToggleGroup(themeGroup);
         miThemeLight.setSelected(true);
 
+        ToggleGroup modeGroup = new ToggleGroup();
+        miModeText.setToggleGroup(modeGroup);
+        miModeCode.setToggleGroup(modeGroup);
+        miModeCode.setSelected(true);
+
         setupShortcuts();
         createNewTab();
-        tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> updateStatus("Pronto"));
+        tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
+            updateStatus("Pronto");
+            syncModeToggle(newTab);
+            updateStats();
+        });
     }
 
     private void setupShortcuts() {
@@ -165,15 +181,15 @@ public class EditorController {
         area.replaceText(content == null ? "" : content);
         data.loading = false;
         data.dirty = false;
+        data.codeMode = true;
 
-        data.highlightSubscription = area.multiPlainChanges()
-                .successionEnds(Duration.ofMillis(200))
-                .subscribe(ignore -> applyHighlight(area));
+        attachHighlight(data);
 
         area.plainTextChanges().subscribe(ignore -> {
             if (!data.loading) {
                 markDirty(tab, true);
             }
+            updateStats();
         });
 
         area.caretPositionProperty().addListener((obs, oldPos, newPos) -> updateCaretStatus(area));
@@ -244,6 +260,71 @@ public class EditorController {
     private void updateStatus(String message) {
         if (lblStatus != null) {
             lblStatus.setText(message);
+        }
+    }
+
+    private void updateStats() {
+        if (lblStats == null) {
+            return;
+        }
+        TabData data = getCurrentData();
+        if (data == null) {
+            lblStats.setText("Palavras: 0 | Caracteres: 0");
+            return;
+        }
+        String text = data.area.getText();
+        int chars = text.length();
+        int words = text.trim().isEmpty() ? 0 : text.trim().split("\\s+").length;
+        lblStats.setText("Palavras: " + words + " | Caracteres: " + chars);
+    }
+
+    private void syncModeToggle(Tab tab) {
+        if (tab == null) {
+            return;
+        }
+        TabData data = (TabData) tab.getUserData();
+        if (data == null) {
+            return;
+        }
+        if (data.codeMode) {
+            miModeCode.setSelected(true);
+        } else {
+            miModeText.setSelected(true);
+        }
+    }
+
+    private void attachHighlight(TabData data) {
+        if (data.highlightSubscription != null) {
+            data.highlightSubscription.unsubscribe();
+        }
+        data.highlightSubscription = data.area.multiPlainChanges()
+                .successionEnds(Duration.ofMillis(200))
+                .subscribe(ignore -> applyHighlight(data.area));
+    }
+
+    private void detachHighlight(TabData data) {
+        if (data.highlightSubscription != null) {
+            data.highlightSubscription.unsubscribe();
+            data.highlightSubscription = null;
+        }
+    }
+
+    private void clearStyles(CodeArea area) {
+        StyleSpansBuilder<Collection<String>> spansBuilder = new StyleSpansBuilder<>();
+        spansBuilder.add(Collections.emptyList(), area.getLength());
+        area.setStyleSpans(0, spansBuilder.create());
+    }
+
+    private void setMode(TabData data, boolean codeMode) {
+        data.codeMode = codeMode;
+        data.area.getStyleClass().removeAll("code-area", "text-area");
+        data.area.getStyleClass().add(codeMode ? "code-area" : "text-area");
+        if (codeMode) {
+            attachHighlight(data);
+            applyHighlight(data.area);
+        } else {
+            detachHighlight(data);
+            clearStyles(data.area);
         }
     }
 
