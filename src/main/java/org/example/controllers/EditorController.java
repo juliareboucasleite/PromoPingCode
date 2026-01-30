@@ -168,6 +168,7 @@ public class EditorController {
         tab.setUserData(data);
         tabPane.getTabs().add(tab);
         tabPane.getSelectionModel().select(tab);
+        updateStats();
     }
 
     private TabData buildCodeTab(Tab tab, String content) {

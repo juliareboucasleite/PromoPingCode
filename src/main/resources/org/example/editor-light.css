@@ -1,11 +1,11 @@
 .root {
-    -fx-background-color: #f5f6f8;
+    -fx-background-color: #e5e7eb;
     -fx-font-family: "Montserrat", "Poppins", "Segoe UI", sans-serif;
 }
 
 .menu-bar {
-    -fx-background-color: #ffffff;
-    -fx-border-color: #e5e7eb;
+    -fx-background-color: #e5e7eb;
+    -fx-border-color: #d1d5db;
     -fx-border-width: 0 0 1 0;
 }
 
@@ -15,18 +15,19 @@
 }
 
 .tab-pane {
-    -fx-background-color: #f5f6f8;
+    -fx-background-color: #e5e7eb;
 }
 
 .tab-header-area .tab-header-background {
-    -fx-background-color: #ffffff;
-    -fx-border-color: #e5e7eb;
+    -fx-background-color: #e5e7eb;
+    -fx-border-color: #d1d5db;
     -fx-border-width: 0 0 1 0;
 }
 
 .tab-pane .tab {
     -fx-background-radius: 10 10 0 0;
-    -fx-background-color: #f3f4f6;
+    -fx-background-color: #e5e7eb;
+    -fx-border-color: #d1d5db;
 }
 
 .tab-pane .tab-label {
@@ -39,14 +40,14 @@
 }
 
 .tab-pane .tab:selected {
-    -fx-background-color: #ffffff;
-    -fx-border-color: #f97316;
+    -fx-background-color: #e5e7eb;
+    -fx-border-color: #9ca3af;
     -fx-border-width: 0 0 2 0;
 }
 
 .status-bar {
-    -fx-background-color: #ffffff;
-    -fx-border-color: #e5e7eb;
+    -fx-background-color: #e5e7eb;
+    -fx-border-color: #d1d5db;
     -fx-border-width: 1 0 0 0;
     -fx-padding: 6 12 6 12;
 }
@@ -62,8 +63,17 @@
 }
 
 .lineno {
-    -fx-background-color: #f3f4f6;
+    -fx-background-color: #e5e7eb;
     -fx-text-fill: #6b7280;
+}
+
+.context-menu {
+    -fx-background-color: #e5e7eb;
+    -fx-border-color: #d1d5db;
+}
+
+.menu-item .label {
+    -fx-text-fill: #111827;
 }
 
 .keyword {
