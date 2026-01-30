@@ -26,16 +26,25 @@ import org.reactfx.Subscription;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -45,6 +54,9 @@ public class EditorController {
 
     private static final String THEME_LIGHT = "/org/example/editor-light.css";
     private static final String THEME_DARK = "/org/example/editor-dark.css";
+    private static final String UPDATE_API = "https://api.github.com/repos/juliareboucasleite/PromoPing-CodePad/releases/latest";
+    private static final String RELEASES_URL = "https://github.com/juliareboucasleite/PromoPing-CodePad/releases";
+    private static final String DRAFTS_FILE = "drafts.dat";
     private static final String[] KEYWORDS = new String[]{
             "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class",
             "const", "continue", "default", "do", "double", "else", "enum", "extends", "final",
@@ -148,6 +160,7 @@ public class EditorController {
     private TextField tfReplace;
     private Label lblFindStatus;
     private ContextMenu suggestMenu;
+    private String appVersion = "0.0.0";
 
     private static class TabData {
         CodeArea area;
@@ -158,6 +171,14 @@ public class EditorController {
         boolean codeMode;
         String language;
         Pattern pattern;
+    }
+
+    private static class DraftEntry {
+        String title;
+        String filePath;
+        boolean codeMode;
+        String language;
+        String content;
     }
 
     @FXML
@@ -173,12 +194,16 @@ public class EditorController {
         miModeCode.setSelected(true);
 
         setupShortcuts();
-        createNewTab();
+        appVersion = loadAppVersion();
+        if (!loadDrafts()) {
+            createNewTab();
+        }
         tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
             updateStatus("Pronto");
             syncModeToggle(newTab);
             updateStats();
         });
+        checkForUpdatesAsync();
     }
 
     private void setupShortcuts() {
@@ -693,11 +718,16 @@ public class EditorController {
 
     @FXML
     public void handleExit() {
+        requestExit();
+    }
+
+    public void requestExit() {
         for (Tab tab : tabPane.getTabs()) {
             if (!confirmClose(tab)) {
                 return;
             }
         }
+        saveDrafts();
         Platform.exit();
     }
 
@@ -1109,5 +1139,221 @@ public class EditorController {
             return pkg.group(1);
         }
         return null;
+    }
+
+    private String loadAppVersion() {
+        try (InputStream in = getClass().getResourceAsStream("/org/example/app.properties")) {
+            if (in == null) {
+                return "0.0.0";
+            }
+            Properties props = new Properties();
+            props.load(in);
+            String v = props.getProperty("app.version");
+            return v == null ? "0.0.0" : v.trim();
+        } catch (IOException ex) {
+            return "0.0.0";
+        }
+    }
+
+    private void checkForUpdatesAsync() {
+        new Thread(() -> {
+            try {
+                HttpClient client = HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(6))
+                        .build();
+                HttpRequest req = HttpRequest.newBuilder()
+                        .uri(URI.create(UPDATE_API))
+                        .header("Accept", "application/vnd.github+json")
+                        .header("User-Agent", "PromoPingCodePad")
+                        .build();
+                HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+                if (res.statusCode() != 200) {
+                    return;
+                }
+                String body = res.body();
+                String tag = extractJsonString(body, "tag_name");
+                String url = extractJsonString(body, "html_url");
+                if (tag == null || url == null) {
+                    return;
+                }
+                if (compareVersions(tag, appVersion) > 0) {
+                    Platform.runLater(() -> showUpdateDialog(tag, url));
+                }
+            } catch (Exception ignored) {
+            }
+        }, "update-check").start();
+    }
+
+    private void showUpdateDialog(String latest, String url) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Atualização disponível");
+        alert.setHeaderText("Nova versão " + latest + " disponível");
+        alert.setContentText("Sua versão atual: " + appVersion + "\nDeseja atualizar agora?");
+        ButtonType btnUpdate = new ButtonType("Atualizar");
+        ButtonType btnLater = new ButtonType("Mais tarde", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(btnUpdate, btnLater);
+        Optional<ButtonType> result = alert.showAndWait();
+        if (result.isPresent() && result.get() == btnUpdate) {
+            try {
+                java.awt.Desktop.getDesktop().browse(URI.create(url));
+            } catch (Exception ex) {
+                showError("Falha ao abrir o navegador", ex.getMessage());
+            }
+        }
+    }
+
+    private int compareVersions(String a, String b) {
+        List<Integer> va = parseVersionNumbers(a);
+        List<Integer> vb = parseVersionNumbers(b);
+        int max = Math.max(va.size(), vb.size());
+        for (int i = 0; i < max; i++) {
+            int ai = i < va.size() ? va.get(i) : 0;
+            int bi = i < vb.size() ? vb.get(i) : 0;
+            if (ai != bi) {
+                return Integer.compare(ai, bi);
+            }
+        }
+        return 0;
+    }
+
+    private List<Integer> parseVersionNumbers(String v) {
+        List<Integer> out = new ArrayList<>();
+        if (v == null) {
+            return out;
+        }
+        Matcher m = Pattern.compile("\\d+").matcher(v);
+        while (m.find()) {
+            try {
+                out.add(Integer.parseInt(m.group()));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return out;
+    }
+
+    private String extractJsonString(String json, String key) {
+        if (json == null || key == null) {
+            return null;
+        }
+        Pattern p = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"(.*?)\"");
+        Matcher m = p.matcher(json);
+        if (!m.find()) {
+            return null;
+        }
+        return m.group(1).replace("\\\"", "\"");
+    }
+
+    private Path getDraftFile() {
+        String base = System.getenv("LOCALAPPDATA");
+        if (base == null || base.isBlank()) {
+            base = System.getProperty("user.home");
+        }
+        return Paths.get(base, "PromoPingCodePad", DRAFTS_FILE);
+    }
+
+    private void saveDrafts() {
+        try {
+            List<DraftEntry> entries = new ArrayList<>();
+            for (Tab tab : tabPane.getTabs()) {
+                TabData data = (TabData) tab.getUserData();
+                if (data == null) {
+                    continue;
+                }
+                String text = data.area.getText();
+                if ((text == null || text.isEmpty()) && data.filePath == null) {
+                    continue;
+                }
+                DraftEntry e = new DraftEntry();
+                e.title = tab.getText();
+                e.filePath = data.filePath == null ? "" : data.filePath.toString();
+                e.codeMode = data.codeMode;
+                e.language = data.language == null ? "java" : data.language;
+                e.content = text == null ? "" : text;
+                entries.add(e);
+            }
+
+            Path file = getDraftFile();
+            if (entries.isEmpty()) {
+                Files.deleteIfExists(file);
+                return;
+            }
+            Files.createDirectories(file.getParent());
+            StringBuilder sb = new StringBuilder();
+            sb.append("DRAFTS_V1").append("\n");
+            for (DraftEntry e : entries) {
+                sb.append(b64(e.title)).append("\n");
+                sb.append(b64(e.filePath)).append("\n");
+                sb.append(e.codeMode ? "1" : "0").append("\n");
+                sb.append(b64(e.language)).append("\n");
+                sb.append(b64(e.content)).append("\n");
+                sb.append("---").append("\n");
+            }
+            Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
+        } catch (IOException ignored) {
+        }
+    }
+
+    private boolean loadDrafts() {
+        Path file = getDraftFile();
+        if (!Files.exists(file)) {
+            return false;
+        }
+        try {
+            List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            if (lines.isEmpty() || !"DRAFTS_V1".equals(lines.get(0))) {
+                return false;
+            }
+            boolean created = false;
+            int i = 1;
+            while (i + 4 < lines.size()) {
+                String title = fromB64(lines.get(i++));
+                String path = fromB64(lines.get(i++));
+                String codeMode = lines.get(i++);
+                String language = fromB64(lines.get(i++));
+                String content = fromB64(lines.get(i++));
+                if (i < lines.size() && "---".equals(lines.get(i))) {
+                    i++;
+                }
+                Tab tab = new Tab(title == null || title.isBlank() ? "Sem Titulo" : title);
+                TabData data = buildCodeTab(tab, content == null ? "" : content);
+                data.filePath = (path == null || path.isBlank()) ? null : Paths.get(path);
+                data.language = (language == null || language.isBlank()) ? "java" : language;
+                data.pattern = patternForLanguage(data.language);
+                if ("0".equals(codeMode)) {
+                    setMode(data, false);
+                } else {
+                    setMode(data, true);
+                }
+                tab.setUserData(data);
+                tabPane.getTabs().add(tab);
+                markDirty(tab, data.filePath == null && content != null && !content.isEmpty());
+                created = true;
+            }
+            if (created) {
+                tabPane.getSelectionModel().selectFirst();
+                updateStats();
+            }
+            return created;
+        } catch (IOException ex) {
+            return false;
+        }
+    }
+
+    private String b64(String s) {
+        if (s == null) {
+            return "";
+        }
+        return Base64.getEncoder().encodeToString(s.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String fromB64(String s) {
+        if (s == null || s.isBlank()) {
+            return "";
+        }
+        try {
+            return new String(Base64.getDecoder().decode(s), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ex) {
+            return "";
+        }
     }
 }
