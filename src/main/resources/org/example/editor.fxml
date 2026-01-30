@@ -42,6 +42,12 @@
                         <MenuItem fx:id="miReplace" text="Buscar e Substituir" onAction="#handleReplace" />
                     </items>
                 </Menu>
+                <Menu text="Modo">
+                    <items>
+                        <RadioMenuItem fx:id="miModeText" text="Texto" onAction="#handleModeText" />
+                        <RadioMenuItem fx:id="miModeCode" text="Código" onAction="#handleModeCode" selected="true" />
+                    </items>
+                </Menu>
                 <Menu text="Exibir">
                     <items>
                         <RadioMenuItem fx:id="miThemeLight" text="Tema Claro" onAction="#handleThemeLight" selected="true" />
@@ -64,6 +70,8 @@
     <bottom>
         <HBox styleClass="status-bar" spacing="10">
             <Label fx:id="lblStatus" text="Pronto" />
+            <Region HBox.hgrow="ALWAYS" />
+            <Label fx:id="lblStats" text="Palavras: 0 | Caracteres: 0" />
         </HBox>
     </bottom>
 </BorderPane>
