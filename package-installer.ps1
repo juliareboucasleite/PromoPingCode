@@ -110,15 +110,15 @@ if (Test-Path $ico) {
     --type exe `
     --dest $dest `
     --input $appDir `
-    --name "PromoPingCodePad" `
+    --name "CodePad" `
     --app-version "1.1.1" `
     --main-jar $jarName `
     --main-class "org.example.Main" `
     --module-path "target\javafx" `
     --add-modules "javafx.controls,javafx.fxml,javafx.graphics,javafx.base" `
     --win-menu --win-shortcut --win-dir-chooser `
-    --win-menu-group "PromoPingCodePad" `
-    --install-dir "PromoPingCodePad" `
+    --win-menu-group "CodePad" `
+    --install-dir "CodePad" `
     --win-per-user-install `
     @iconArg
 
