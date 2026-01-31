@@ -462,9 +462,25 @@ public class EditorController {
     }
 
     private void updateCaretStatus(CodeArea area) {
+        updateLineColStatus(area);
+    }
+
+    private void updateLineColStatus() {
+        TabData data = getCurrentData();
+        if (data == null) {
+            return;
+        }
+        updateLineColStatus(data.area);
+    }
+
+    private void updateLineColStatus(CodeArea area) {
+        if (lblLineCol == null || area == null) {
+            return;
+        }
         int line = area.getCurrentParagraph() + 1;
         int col = area.getCaretColumn() + 1;
-        updateStatus("Linha " + line + ", Coluna " + col);
+        int pos = area.getCaretPosition() + 1;
+        lblLineCol.setText("Ln " + line + ", Col " + col + ", Pos " + pos);
     }
 
     private void updateStatus(String message) {
@@ -473,19 +489,64 @@ public class EditorController {
         }
     }
 
+    private void updateSelectionStatus() {
+        TabData data = getCurrentData();
+        if (data == null) {
+            if (lblSelection != null) {
+                lblSelection.setText("Seleção: 0");
+            }
+            return;
+        }
+        updateSelectionStatus(data.area);
+    }
+
+    private void updateSelectionStatus(CodeArea area) {
+        if (lblSelection == null || area == null) {
+            return;
+        }
+        String selected = area.getSelectedText();
+        int len = selected == null ? 0 : selected.length();
+        lblSelection.setText("Seleção: " + len);
+    }
+
+    private void updateEncodingStatus() {
+        TabData data = getCurrentData();
+        if (data == null || data.encoding == null || lblEncoding == null) {
+            return;
+        }
+        lblEncoding.setText(data.encoding.label);
+    }
+
+    private void updateLineEndingStatus() {
+        TabData data = getCurrentData();
+        if (data == null || data.lineEnding == null || lblEol == null) {
+            return;
+        }
+        lblEol.setText(data.lineEnding.label);
+    }
+
+    private void updateZoomStatus() {
+        if (lblZoom == null) {
+            return;
+        }
+        int percent = (int) Math.round((fontSize / BASE_FONT_SIZE) * 100.0);
+        lblZoom.setText(percent + "%");
+    }
+
     private void updateStats() {
         if (lblStats == null) {
             return;
         }
         TabData data = getCurrentData();
         if (data == null) {
-            lblStats.setText("Palavras: 0 | Caracteres: 0");
+            lblStats.setText("Linhas: 1 | Palavras: 0 | Caracteres: 0");
             return;
         }
         String text = data.area.getText();
         int chars = text.length();
         int words = text.trim().isEmpty() ? 0 : text.trim().split("\\s+").length;
-        lblStats.setText("Palavras: " + words + " | Caracteres: " + chars);
+        int lines = text.isEmpty() ? 1 : text.split("\\R", -1).length;
+        lblStats.setText("Linhas: " + lines + " | Palavras: " + words + " | Caracteres: " + chars);
     }
 
     private void syncModeToggle(Tab tab) {
@@ -500,6 +561,38 @@ public class EditorController {
             miModeCode.setSelected(true);
         } else {
             miModeText.setSelected(true);
+        }
+    }
+
+    private void syncEncodingToggle(Tab tab) {
+        if (tab == null) {
+            return;
+        }
+        TabData data = (TabData) tab.getUserData();
+        if (data == null || data.encoding == null) {
+            return;
+        }
+        switch (data.encoding) {
+            case ANSI -> miEncodingAnsi.setSelected(true);
+            case UTF8 -> miEncodingUtf8.setSelected(true);
+            case UTF8_BOM -> miEncodingUtf8Bom.setSelected(true);
+            case UTF16_LE_BOM -> miEncodingUtf16LeBom.setSelected(true);
+            case UTF16_BE_BOM -> miEncodingUtf16BeBom.setSelected(true);
+        }
+    }
+
+    private void syncLineEndingToggle(Tab tab) {
+        if (tab == null) {
+            return;
+        }
+        TabData data = (TabData) tab.getUserData();
+        if (data == null || data.lineEnding == null) {
+            return;
+        }
+        switch (data.lineEnding) {
+            case CRLF -> miEolWindows.setSelected(true);
+            case LF -> miEolUnix.setSelected(true);
+            case CR -> miEolMac.setSelected(true);
         }
     }
 
@@ -536,6 +629,32 @@ public class EditorController {
             detachHighlight(data);
             clearStyles(data.area);
         }
+    }
+
+    private void applyFontSize(CodeArea area) {
+        if (area == null) {
+            return;
+        }
+        area.setStyle("-fx-font-size: " + String.format(java.util.Locale.ROOT, "%.0f", fontSize) + "px;");
+    }
+
+    private void applyFontSizeAll() {
+        for (Tab tab : tabPane.getTabs()) {
+            TabData data = (TabData) tab.getUserData();
+            if (data != null) {
+                applyFontSize(data.area);
+            }
+        }
+    }
+
+    private void setFontSize(double newSize) {
+        double clamped = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, newSize));
+        if (Math.abs(clamped - fontSize) < 0.01) {
+            return;
+        }
+        fontSize = clamped;
+        applyFontSizeAll();
+        updateZoomStatus();
     }
 
     private void setupEditorInteractions(TabData data) {
@@ -761,10 +880,16 @@ public class EditorController {
             return;
         }
         try {
-            String content = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+            byte[] bytes = Files.readAllBytes(file.toPath());
+            FileEncoding detected = detectEncoding(bytes);
+            int offset = (detected != null && detected.bom != null) ? detected.bom.length : 0;
+            Charset charset = detected != null ? detected.charset : defaultEncoding.charset;
+            String content = new String(bytes, offset, bytes.length - offset, charset);
             Tab tab = new Tab(file.getName());
             TabData data = buildCodeTab(tab, content);
             data.filePath = file.toPath();
+            data.encoding = detected != null ? detected : defaultEncoding;
+            data.lineEnding = detectLineEnding(content);
             String language = detectLanguage(file.toPath());
             if ("text".equals(language)) {
                 setMode(data, false);
@@ -782,6 +907,12 @@ public class EditorController {
             }
             updateStatus("Arquivo aberto: " + file.getName());
             updateStats();
+            syncEncodingToggle(tab);
+            syncLineEndingToggle(tab);
+            updateEncodingStatus();
+            updateLineEndingStatus();
+            updateLineColStatus();
+            updateSelectionStatus();
         } catch (IOException ex) {
             showError("Não foi possível abrir o arquivo.", ex.getMessage());
         }
@@ -814,7 +945,9 @@ public class EditorController {
             path = file.toPath();
         }
         try {
-            Files.writeString(path, data.area.getText(), StandardCharsets.UTF_8);
+            String normalized = normalizeLineEndings(data.area.getText(), data.lineEnding);
+            byte[] bytes = encodeText(normalized, data.encoding);
+            Files.write(path, bytes);
             data.filePath = path;
             markDirty(tab, false);
             setCurrentFile(data, tab, path);
@@ -940,6 +1073,120 @@ public class EditorController {
             }
             setMode(data, true);
         }
+    }
+
+    @FXML
+    public void handleEncodingAnsi() {
+        applyEncoding(FileEncoding.ANSI, false);
+    }
+
+    @FXML
+    public void handleEncodingUtf8() {
+        applyEncoding(FileEncoding.UTF8, false);
+    }
+
+    @FXML
+    public void handleEncodingUtf8Bom() {
+        applyEncoding(FileEncoding.UTF8_BOM, false);
+    }
+
+    @FXML
+    public void handleEncodingUtf16LeBom() {
+        applyEncoding(FileEncoding.UTF16_LE_BOM, false);
+    }
+
+    @FXML
+    public void handleEncodingUtf16BeBom() {
+        applyEncoding(FileEncoding.UTF16_BE_BOM, false);
+    }
+
+    @FXML
+    public void handleConvertAnsi() {
+        applyEncoding(FileEncoding.ANSI, true);
+    }
+
+    @FXML
+    public void handleConvertUtf8() {
+        applyEncoding(FileEncoding.UTF8, true);
+    }
+
+    @FXML
+    public void handleConvertUtf8Bom() {
+        applyEncoding(FileEncoding.UTF8_BOM, true);
+    }
+
+    @FXML
+    public void handleConvertUtf16LeBom() {
+        applyEncoding(FileEncoding.UTF16_LE_BOM, true);
+    }
+
+    @FXML
+    public void handleConvertUtf16BeBom() {
+        applyEncoding(FileEncoding.UTF16_BE_BOM, true);
+    }
+
+    @FXML
+    public void handleEolWindows() {
+        applyLineEnding(LineEnding.CRLF);
+    }
+
+    @FXML
+    public void handleEolUnix() {
+        applyLineEnding(LineEnding.LF);
+    }
+
+    @FXML
+    public void handleEolMac() {
+        applyLineEnding(LineEnding.CR);
+    }
+
+    @FXML
+    public void handleZoomIn() {
+        setFontSize(fontSize + 1);
+    }
+
+    @FXML
+    public void handleZoomOut() {
+        setFontSize(fontSize - 1);
+    }
+
+    @FXML
+    public void handleZoomReset() {
+        setFontSize(BASE_FONT_SIZE);
+    }
+
+    private void applyEncoding(FileEncoding encoding, boolean markDirty) {
+        Tab tab = tabPane.getSelectionModel().getSelectedItem();
+        TabData data = getCurrentData();
+        if (tab == null || data == null) {
+            return;
+        }
+        data.encoding = encoding;
+        defaultEncoding = encoding;
+        syncEncodingToggle(tab);
+        updateEncodingStatus();
+        if (markDirty) {
+            markDirty(tab, true);
+            draftsDirty = true;
+            updateStatus("Converter para " + encoding.label + " (salve para aplicar)");
+        } else {
+            updateStatus("Codificação: " + encoding.label);
+        }
+    }
+
+    private void applyLineEnding(LineEnding lineEnding) {
+        Tab tab = tabPane.getSelectionModel().getSelectedItem();
+        TabData data = getCurrentData();
+        if (tab == null || data == null) {
+            return;
+        }
+        data.lineEnding = lineEnding;
+        defaultLineEnding = lineEnding;
+        syncLineEndingToggle(tab);
+        updateLineEndingStatus();
+        markDirty(tab, true);
+        draftsDirty = true;
+        updateStatus("Quebra de linha: " + lineEnding.label);
     }
 
     private void showFindReplace(boolean focusReplace) {
@@ -1153,6 +1400,62 @@ public class EditorController {
         return KEYWORDS;
     }
 
+    private FileEncoding detectEncoding(byte[] bytes) {
+        if (startsWith(bytes, BOM_UTF8)) {
+            return FileEncoding.UTF8_BOM;
+        }
+        if (startsWith(bytes, BOM_UTF16_LE)) {
+            return FileEncoding.UTF16_LE_BOM;
+        }
+        if (startsWith(bytes, BOM_UTF16_BE)) {
+            return FileEncoding.UTF16_BE_BOM;
+        }
+        return null;
+    }
+
+    private boolean startsWith(byte[] bytes, byte[] prefix) {
+        if (bytes == null || prefix == null || bytes.length < prefix.length) {
+            return false;
+        }
+        for (int i = 0; i < prefix.length; i++) {
+            if (bytes[i] != prefix[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private LineEnding detectLineEnding(String text) {
+        if (text == null || text.isEmpty()) {
+            return defaultLineEnding;
+        }
+        if (text.contains("\r\n")) {
+            return LineEnding.CRLF;
+        }
+        if (text.contains("\r")) {
+            return LineEnding.CR;
+        }
+        return LineEnding.LF;
+    }
+
+    private String normalizeLineEndings(String text, LineEnding lineEnding) {
+        String normalized = text == null ? "" : text.replace("\r\n", "\n").replace("\r", "\n");
+        LineEnding target = lineEnding == null ? defaultLineEnding : lineEnding;
+        return normalized.replace("\n", target.sequence);
+    }
+
+    private byte[] encodeText(String text, FileEncoding encoding) {
+        FileEncoding enc = encoding == null ? defaultEncoding : encoding;
+        byte[] content = (text == null ? "" : text).getBytes(enc.charset);
+        if (enc.bom == null || enc.bom.length == 0) {
+            return content;
+        }
+        byte[] out = new byte[enc.bom.length + content.length];
+        System.arraycopy(enc.bom, 0, out, 0, enc.bom.length);
+        System.arraycopy(content, 0, out, enc.bom.length, content.length);
+        return out;
+    }
+
     private String loadAppVersion() {
         try (InputStream in = getClass().getResourceAsStream("/org/example/app.properties")) {
             if (in == null) {
@@ -1334,6 +1637,8 @@ public class EditorController {
                 e.codeMode = data.codeMode;
                 e.language = data.language == null ? "java" : data.language;
                 e.content = text == null ? "" : text;
+                e.encoding = (data.encoding == null ? defaultEncoding : data.encoding).name();
+                e.lineEnding = (data.lineEnding == null ? defaultLineEnding : data.lineEnding).name();
                 entries.add(e);
             }
 
@@ -1345,12 +1650,14 @@ public class EditorController {
             }
             Files.createDirectories(file.getParent());
             StringBuilder sb = new StringBuilder();
-            sb.append("DRAFTS_V1").append("\n");
+            sb.append("DRAFTS_V2").append("\n");
             for (DraftEntry e : entries) {
                 sb.append(b64(e.title)).append("\n");
                 sb.append(b64(e.filePath)).append("\n");
                 sb.append(e.codeMode ? "1" : "0").append("\n");
                 sb.append(b64(e.language)).append("\n");
+                sb.append(b64(e.encoding)).append("\n");
+                sb.append(b64(e.lineEnding)).append("\n");
                 sb.append(b64(e.content)).append("\n");
                 sb.append("---").append("\n");
             }
@@ -1371,38 +1678,56 @@ public class EditorController {
         }
         try {
             List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
-            if (lines.isEmpty() || !"DRAFTS_V1".equals(lines.get(0))) {
+            if (lines.isEmpty()) {
+                return false;
+            }
+            String header = lines.get(0);
+            boolean v2 = "DRAFTS_V2".equals(header);
+            boolean v1 = "DRAFTS_V1".equals(header);
+            if (!v1 && !v2) {
                 return false;
             }
             boolean created = false;
             int i = 1;
-            while (i + 4 < lines.size()) {
-                String title = fromB64(lines.get(i++));
-                String path = fromB64(lines.get(i++));
-                String codeMode = lines.get(i++);
-                String language = fromB64(lines.get(i++));
-                String content = fromB64(lines.get(i++));
-                if (i < lines.size() && "---".equals(lines.get(i))) {
-                    i++;
-                }
-                Tab tab = new Tab(title == null || title.isBlank() ? "Sem Titulo" : title);
-                TabData data = buildCodeTab(tab, content == null ? "" : content);
-                data.filePath = (path == null || path.isBlank()) ? null : Paths.get(path);
-                data.language = (language == null || language.isBlank()) ? "java" : language;
-                data.pattern = patternForLanguage(data.language);
-                if ("0".equals(codeMode)) {
-                    setMode(data, false);
+            while (i < lines.size()) {
+                if (v2) {
+                    if (i + 6 >= lines.size()) {
+                        break;
+                    }
+                    String title = fromB64(lines.get(i++));
+                    String path = fromB64(lines.get(i++));
+                    String codeMode = lines.get(i++);
+                    String language = fromB64(lines.get(i++));
+                    String encoding = fromB64(lines.get(i++));
+                    String lineEnding = fromB64(lines.get(i++));
+                    String content = fromB64(lines.get(i++));
+                    if (i < lines.size() && "---".equals(lines.get(i))) {
+                        i++;
+                    }
+                    created |= restoreDraft(title, path, codeMode, language, encoding, lineEnding, content);
                 } else {
-                    setMode(data, true);
+                    if (i + 4 >= lines.size()) {
+                        break;
+                    }
+                    String title = fromB64(lines.get(i++));
+                    String path = fromB64(lines.get(i++));
+                    String codeMode = lines.get(i++);
+                    String language = fromB64(lines.get(i++));
+                    String content = fromB64(lines.get(i++));
+                    if (i < lines.size() && "---".equals(lines.get(i))) {
+                        i++;
+                    }
+                    created |= restoreDraft(title, path, codeMode, language, null, null, content);
                 }
-                tab.setUserData(data);
-                tabPane.getTabs().add(tab);
-                markDirty(tab, data.filePath == null && content != null && !content.isEmpty());
-                created = true;
             }
             if (created) {
                 tabPane.getSelectionModel().selectFirst();
                 updateStats();
+                updateLineColStatus();
+                updateSelectionStatus();
+                updateEncodingStatus();
+                updateLineEndingStatus();
+                updateZoomStatus();
             }
             draftsDirty = false;
             return created;
