@@ -49,10 +49,40 @@
                             <RadioMenuItem fx:id="miModeCode" text="Código" onAction="#handleModeCode" selected="true" />
                         </items>
                     </Menu>
+                    <Menu text="Codificação">
+                        <items>
+                            <RadioMenuItem fx:id="miEncodingAnsi" text="ANSI" onAction="#handleEncodingAnsi" />
+                            <RadioMenuItem fx:id="miEncodingUtf8" text="UTF-8" onAction="#handleEncodingUtf8" />
+                            <RadioMenuItem fx:id="miEncodingUtf8Bom" text="UTF-8 BOM" onAction="#handleEncodingUtf8Bom" />
+                            <RadioMenuItem fx:id="miEncodingUtf16LeBom" text="UTF-16 LE BOM" onAction="#handleEncodingUtf16LeBom" />
+                            <RadioMenuItem fx:id="miEncodingUtf16BeBom" text="UTF-16 BE BOM" onAction="#handleEncodingUtf16BeBom" />
+                            <SeparatorMenuItem />
+                            <Menu text="Converter para">
+                                <items>
+                                    <MenuItem fx:id="miConvertAnsi" text="ANSI" onAction="#handleConvertAnsi" />
+                                    <MenuItem fx:id="miConvertUtf8" text="UTF-8" onAction="#handleConvertUtf8" />
+                                    <MenuItem fx:id="miConvertUtf8Bom" text="UTF-8 BOM" onAction="#handleConvertUtf8Bom" />
+                                    <MenuItem fx:id="miConvertUtf16LeBom" text="UTF-16 LE BOM" onAction="#handleConvertUtf16LeBom" />
+                                    <MenuItem fx:id="miConvertUtf16BeBom" text="UTF-16 BE BOM" onAction="#handleConvertUtf16BeBom" />
+                                </items>
+                            </Menu>
+                        </items>
+                    </Menu>
+                    <Menu text="Quebra de linha">
+                        <items>
+                            <RadioMenuItem fx:id="miEolWindows" text="Windows (CRLF)" onAction="#handleEolWindows" />
+                            <RadioMenuItem fx:id="miEolUnix" text="Unix (LF)" onAction="#handleEolUnix" />
+                            <RadioMenuItem fx:id="miEolMac" text="Mac (CR)" onAction="#handleEolMac" />
+                        </items>
+                    </Menu>
                     <Menu text="Exibir">
                         <items>
                             <RadioMenuItem fx:id="miThemeLight" text="Tema Claro" onAction="#handleThemeLight" selected="true" />
                             <RadioMenuItem fx:id="miThemeDark" text="Tema Escuro" onAction="#handleThemeDark" />
+                            <SeparatorMenuItem />
+                            <MenuItem fx:id="miZoomIn" text="Zoom +" onAction="#handleZoomIn" />
+                            <MenuItem fx:id="miZoomOut" text="Zoom -" onAction="#handleZoomOut" />
+                            <MenuItem fx:id="miZoomReset" text="Zoom 100%" onAction="#handleZoomReset" />
                         </items>
                     </Menu>
                     <Menu text="Ajuda">
@@ -63,7 +93,20 @@
                 </menus>
             </MenuBar>
             <ToolBar>
-                <Button fx:id="btnRun" text="▶ Executar" onAction="#handleRun" />
+                <Button text="Novo" onAction="#handleNewTab" />
+                <Button text="Abrir" onAction="#handleOpen" />
+                <Button text="Salvar" onAction="#handleSave" />
+                <Button text="Salvar Como" onAction="#handleSaveAs" />
+                <Separator orientation="VERTICAL" />
+                <Button text="Desfazer" onAction="#handleUndo" />
+                <Button text="Refazer" onAction="#handleRedo" />
+                <Separator orientation="VERTICAL" />
+                <Button text="Recortar" onAction="#handleCut" />
+                <Button text="Copiar" onAction="#handleCopy" />
+                <Button text="Colar" onAction="#handlePaste" />
+                <Separator orientation="VERTICAL" />
+                <Button text="Buscar" onAction="#handleFind" />
+                <Button text="Substituir" onAction="#handleReplace" />
             </ToolBar>
         </VBox>
     </top>
@@ -76,7 +119,12 @@
         <HBox styleClass="status-bar" spacing="10">
             <Label fx:id="lblStatus" text="Pronto" />
             <Region HBox.hgrow="ALWAYS" />
-            <Label fx:id="lblStats" text="Palavras: 0 | Caracteres: 0" />
+            <Label fx:id="lblSelection" text="Seleção: 0" />
+            <Label fx:id="lblStats" text="Linhas: 1 | Palavras: 0 | Caracteres: 0" />
+            <Label fx:id="lblLineCol" text="Ln 1, Col 1, Pos 1" />
+            <Label fx:id="lblEol" text="Windows (CRLF)" />
+            <Label fx:id="lblEncoding" text="UTF-8" />
+            <Label fx:id="lblZoom" text="100%" />
         </HBox>
     </bottom>
 </BorderPane>
