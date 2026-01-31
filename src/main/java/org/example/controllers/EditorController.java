@@ -33,6 +33,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -56,14 +57,52 @@ public class EditorController {
 
     private static final String THEME_LIGHT = "/org/example/editor-light.css";
     private static final String THEME_DARK = "/org/example/editor-dark.css";
-    private static final String APP_NAME = "CodePad";
-    private static final String UPDATE_API = "https://api.github.com/repos/juliareboucasleite/CodePad/releases/latest";
-    private static final String RELEASES_URL = "https://github.com/juliareboucasleite/CodePad/releases";
-    private static final String RELEASE_ASSET_NAME = "CodePad-Setup.exe";
-    private static final String DRAFTS_DIR = "CodePad";
-    private static final String LEGACY_DRAFTS_DIR = "PromoPingCodePad";
+    private static final String APP_NAME = "PromoPing CodePad";
+    private static final String UPDATE_API = "https://api.github.com/repos/juliareboucasleite/PromoPing-CodePad/releases/latest";
+    private static final String RELEASES_URL = "https://github.com/juliareboucasleite/PromoPing-CodePad/releases";
+    private static final String RELEASE_ASSET_NAME = "PromoPingCodePad-Setup.exe";
+    private static final String DRAFTS_DIR = "PromoPingCodePad";
+    private static final String LEGACY_DRAFTS_DIR = "CodePad";
     private static final String DRAFTS_FILE = "drafts.dat";
     private static final int AUTO_SAVE_SECONDS = 30;
+    private static final double BASE_FONT_SIZE = 13.0;
+    private static final double MIN_FONT_SIZE = 10.0;
+    private static final double MAX_FONT_SIZE = 24.0;
+    private static final byte[] BOM_UTF8 = new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
+    private static final byte[] BOM_UTF16_LE = new byte[]{(byte) 0xFF, (byte) 0xFE};
+    private static final byte[] BOM_UTF16_BE = new byte[]{(byte) 0xFE, (byte) 0xFF};
+
+    private enum FileEncoding {
+        ANSI("ANSI", java.nio.charset.Charset.defaultCharset(), null),
+        UTF8("UTF-8", java.nio.charset.StandardCharsets.UTF_8, null),
+        UTF8_BOM("UTF-8 BOM", java.nio.charset.StandardCharsets.UTF_8, BOM_UTF8),
+        UTF16_LE_BOM("UTF-16 LE BOM", java.nio.charset.StandardCharsets.UTF_16LE, BOM_UTF16_LE),
+        UTF16_BE_BOM("UTF-16 BE BOM", java.nio.charset.StandardCharsets.UTF_16BE, BOM_UTF16_BE);
+
+        final String label;
+        final java.nio.charset.Charset charset;
+        final byte[] bom;
+
+        FileEncoding(String label, java.nio.charset.Charset charset, byte[] bom) {
+            this.label = label;
+            this.charset = charset;
+            this.bom = bom;
+        }
+    }
+
+    private enum LineEnding {
+        CRLF("Windows (CRLF)", "\r\n"),
+        LF("Unix (LF)", "\n"),
+        CR("Mac (CR)", "\r");
+
+        final String label;
+        final String sequence;
+
+        LineEnding(String label, String sequence) {
+            this.label = label;
+            this.sequence = sequence;
+        }
+    }
     private static final String[] KEYWORDS = new String[]{
             "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class",
             "const", "continue", "default", "do", "double", "else", "enum", "extends", "final",
@@ -116,7 +155,15 @@ public class EditorController {
     @FXML
     private Label lblStats;
     @FXML
-    private Button btnRun;
+    private Label lblSelection;
+    @FXML
+    private Label lblLineCol;
+    @FXML
+    private Label lblEol;
+    @FXML
+    private Label lblEncoding;
+    @FXML
+    private Label lblZoom;
 
     @FXML
     private MenuItem miNewTab;
@@ -156,6 +203,38 @@ public class EditorController {
     private RadioMenuItem miModeText;
     @FXML
     private RadioMenuItem miModeCode;
+    @FXML
+    private RadioMenuItem miEncodingAnsi;
+    @FXML
+    private RadioMenuItem miEncodingUtf8;
+    @FXML
+    private RadioMenuItem miEncodingUtf8Bom;
+    @FXML
+    private RadioMenuItem miEncodingUtf16LeBom;
+    @FXML
+    private RadioMenuItem miEncodingUtf16BeBom;
+    @FXML
+    private MenuItem miConvertAnsi;
+    @FXML
+    private MenuItem miConvertUtf8;
+    @FXML
+    private MenuItem miConvertUtf8Bom;
+    @FXML
+    private MenuItem miConvertUtf16LeBom;
+    @FXML
+    private MenuItem miConvertUtf16BeBom;
+    @FXML
+    private RadioMenuItem miEolWindows;
+    @FXML
+    private RadioMenuItem miEolUnix;
+    @FXML
+    private RadioMenuItem miEolMac;
+    @FXML
+    private MenuItem miZoomIn;
+    @FXML
+    private MenuItem miZoomOut;
+    @FXML
+    private MenuItem miZoomReset;
 
     @FXML
     private MenuItem miAbout;
@@ -170,6 +249,9 @@ public class EditorController {
     private String appVersion = "0.0.0";
     private boolean draftsDirty = false;
     private Timeline autosaveTimeline;
+    private FileEncoding defaultEncoding = FileEncoding.UTF8;
+    private LineEnding defaultLineEnding = LineEnding.CRLF;
+    private double fontSize = BASE_FONT_SIZE;
 
     private static class TabData {
         CodeArea area;
@@ -180,6 +262,8 @@ public class EditorController {
         boolean codeMode;
         String language;
         Pattern pattern;
+        FileEncoding encoding;
+        LineEnding lineEnding;
     }
 
     private static class DraftEntry {
@@ -188,6 +272,8 @@ public class EditorController {
         boolean codeMode;
         String language;
         String content;
+        String encoding;
+        String lineEnding;
     }
 
     @FXML
@@ -202,6 +288,20 @@ public class EditorController {
         miModeCode.setToggleGroup(modeGroup);
         miModeCode.setSelected(true);
 
+        ToggleGroup encodingGroup = new ToggleGroup();
+        miEncodingAnsi.setToggleGroup(encodingGroup);
+        miEncodingUtf8.setToggleGroup(encodingGroup);
+        miEncodingUtf8Bom.setToggleGroup(encodingGroup);
+        miEncodingUtf16LeBom.setToggleGroup(encodingGroup);
+        miEncodingUtf16BeBom.setToggleGroup(encodingGroup);
+        miEncodingUtf8.setSelected(true);
+
+        ToggleGroup eolGroup = new ToggleGroup();
+        miEolWindows.setToggleGroup(eolGroup);
+        miEolUnix.setToggleGroup(eolGroup);
+        miEolMac.setToggleGroup(eolGroup);
+        miEolWindows.setSelected(true);
+
         setupShortcuts();
         appVersion = loadAppVersion();
         if (!loadDrafts()) {
@@ -210,7 +310,14 @@ public class EditorController {
         tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
             updateStatus("Pronto");
             syncModeToggle(newTab);
+            syncEncodingToggle(newTab);
+            syncLineEndingToggle(newTab);
             updateStats();
+            updateLineColStatus();
+            updateSelectionStatus();
+            updateEncodingStatus();
+            updateLineEndingStatus();
+            updateZoomStatus();
         });
         startAutoSave();
         checkForUpdatesAsync();
@@ -230,6 +337,12 @@ public class EditorController {
                 javafx.scene.input.KeyCode.F, javafx.scene.input.KeyCombination.CONTROL_DOWN));
         miReplace.setAccelerator(new javafx.scene.input.KeyCodeCombination(
                 javafx.scene.input.KeyCode.H, javafx.scene.input.KeyCombination.CONTROL_DOWN));
+        miZoomIn.setAccelerator(new javafx.scene.input.KeyCodeCombination(
+                javafx.scene.input.KeyCode.EQUALS, javafx.scene.input.KeyCombination.CONTROL_DOWN));
+        miZoomOut.setAccelerator(new javafx.scene.input.KeyCodeCombination(
+                javafx.scene.input.KeyCode.MINUS, javafx.scene.input.KeyCombination.CONTROL_DOWN));
+        miZoomReset.setAccelerator(new javafx.scene.input.KeyCodeCombination(
+                javafx.scene.input.KeyCode.DIGIT0, javafx.scene.input.KeyCombination.CONTROL_DOWN));
     }
 
     private void createNewTab() {
@@ -243,6 +356,13 @@ public class EditorController {
             setMode(data, false);
         }
         updateStats();
+        syncEncodingToggle(tab);
+        syncLineEndingToggle(tab);
+        updateLineColStatus();
+        updateSelectionStatus();
+        updateEncodingStatus();
+        updateLineEndingStatus();
+        updateZoomStatus();
     }
 
     private TabData buildCodeTab(Tab tab, String content) {
@@ -259,7 +379,10 @@ public class EditorController {
         data.codeMode = true;
         data.language = "java";
         data.pattern = PATTERN_JAVA;
+        data.encoding = defaultEncoding;
+        data.lineEnding = defaultLineEnding;
 
+        applyFontSize(area);
         attachHighlight(data);
 
         area.plainTextChanges().subscribe(ignore -> {
@@ -271,6 +394,7 @@ public class EditorController {
         });
 
         area.caretPositionProperty().addListener((obs, oldPos, newPos) -> updateCaretStatus(area));
+        area.selectedTextProperty().addListener((obs, oldText, newText) -> updateSelectionStatus(area));
 
         setupEditorInteractions(data);
         VirtualizedScrollPane<CodeArea> scroller = new VirtualizedScrollPane<>(area);
@@ -377,7 +501,6 @@ public class EditorController {
         } else {
             miModeText.setSelected(true);
         }
-        updateRunButtonState(data);
     }
 
     private void attachHighlight(TabData data) {
@@ -413,14 +536,6 @@ public class EditorController {
             detachHighlight(data);
             clearStyles(data.area);
         }
-        updateRunButtonState(data);
-    }
-
-    private void updateRunButtonState(TabData data) {
-        if (btnRun == null) {
-            return;
-        }
-        btnRun.setDisable(data == null || !data.codeMode);
     }
 
     private void setupEditorInteractions(TabData data) {
@@ -827,22 +942,6 @@ public class EditorController {
         }
     }
 
-    @FXML
-    public void handleRun() {
-        TabData data = getCurrentData();
-        if (data == null || !data.codeMode) {
-            return;
-        }
-        if (data.filePath == null || data.dirty) {
-            boolean saved = handleSaveInternal(false);
-            if (!saved) {
-                return;
-            }
-        }
-        String language = detectLanguage(data.filePath);
-        runCodeAsync(data, language);
-    }
-
     private void showFindReplace(boolean focusReplace) {
         if (findStage == null) {
             buildFindDialog();
@@ -1052,106 +1151,6 @@ public class EditorController {
             return KEYWORDS_PY;
         }
         return KEYWORDS;
-    }
-
-    private void runCodeAsync(TabData data, String language) {
-        updateStatus("Executando...");
-        new Thread(() -> {
-            try {
-                String output = runCode(data, language);
-                Platform.runLater(() -> showOutput("Saída da execução", output));
-            } catch (IOException | InterruptedException ex) {
-                Platform.runLater(() -> showError("Falha ao executar", ex.getMessage()));
-            } finally {
-                Platform.runLater(() -> updateStatus("Pronto"));
-            }
-        }, "code-runner").start();
-    }
-
-    private String runCode(TabData data, String language) throws IOException, InterruptedException {
-        if ("java".equals(language)) {
-            return runJavaFromBuffer(data);
-        }
-        if (data.filePath == null) {
-            return "Salve o arquivo antes de executar.";
-        }
-        Path file = data.filePath;
-        if ("py".equals(language)) {
-            return runProcess(List.of("python", file.getFileName().toString()), file.getParent());
-        }
-        if ("js".equals(language)) {
-            return runProcess(List.of("node", file.getFileName().toString()), file.getParent());
-        }
-        return "Linguagem não suportada para execução: " + language;
-    }
-
-    private String runJavaFromBuffer(TabData data) throws IOException, InterruptedException {
-        String source = data.area.getText();
-        String className = detectJavaClassName(source);
-        if (className == null) {
-            return "Não foi possível identificar uma classe Java para executar.";
-        }
-        String packageName = detectJavaPackage(source);
-        String qualifiedName = packageName == null ? className : packageName + "." + className;
-
-        Path tempDir = Files.createTempDirectory("codepad-java-");
-        Path javaFile = tempDir.resolve(className + ".java");
-        Files.writeString(javaFile, source, StandardCharsets.UTF_8);
-
-        String compileOut = runProcess(List.of("javac", "-d", tempDir.toString(), javaFile.toString()), tempDir);
-        if (!compileOut.isEmpty()) {
-            return "Compilação:\n" + compileOut;
-        }
-        return runProcess(List.of("java", "-cp", tempDir.toString(), qualifiedName), tempDir);
-    }
-
-    private String runProcess(List<String> command, Path workdir) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(command);
-        if (workdir != null) {
-            pb.directory(workdir.toFile());
-        }
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        byte[] bytes = process.getInputStream().readAllBytes();
-        int exit = process.waitFor();
-        String output = new String(bytes, StandardCharsets.UTF_8);
-        if (exit != 0) {
-            return "Erro (exit " + exit + "):\n" + output;
-        }
-        return output.isEmpty() ? "Sem saída." : output;
-    }
-
-    private void showOutput(String title, String output) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle(title);
-        alert.setHeaderText(null);
-        TextArea area = new TextArea(output);
-        area.setEditable(false);
-        area.setWrapText(true);
-        area.setPrefWidth(640);
-        area.setPrefHeight(360);
-        alert.getDialogPane().setContent(area);
-        alert.showAndWait();
-    }
-
-    private String detectJavaClassName(String source) {
-        Matcher publicClass = Pattern.compile("\\bpublic\\s+class\\s+(\\w+)").matcher(source);
-        if (publicClass.find()) {
-            return publicClass.group(1);
-        }
-        Matcher classWithMain = Pattern.compile("\\bclass\\s+(\\w+)").matcher(source);
-        if (classWithMain.find()) {
-            return classWithMain.group(1);
-        }
-        return null;
-    }
-
-    private String detectJavaPackage(String source) {
-        Matcher pkg = Pattern.compile("\\bpackage\\s+([\\w\\.]+)\\s*;").matcher(source);
-        if (pkg.find()) {
-            return pkg.group(1);
-        }
-        return null;
     }
 
     private String loadAppVersion() {
