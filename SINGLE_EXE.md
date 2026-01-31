@@ -10,7 +10,7 @@ Passos
    .\single-exe.ps1
 
 Saida
-dist\PromoPingCodePad-Standalone.exe
+dist\CodePad-Standalone.exe
 
 Observacao
 Esse exe unico extrai para uma pasta temporaria e executa o app. O primeiro start pode demorar um pouco.
